@@ -1,4 +1,6 @@
 import type { Metadata } from 'next'
+import { redirect } from 'next/navigation'
+import { createClient } from '@/lib/supabase/server'
 import InvoiceDropzone from '@/components/InvoiceDropzone'
 
 export const metadata: Metadata = {
@@ -7,7 +9,13 @@ export const metadata: Metadata = {
     'Sube tus facturas en PDF o imagen y extrae los datos automáticamente con IA.',
 }
 
-export default function HomePage() {
+export default async function HomePage() {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect('/login')
+  }
   return (
     <main className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-br from-slate-950 via-zinc-900 to-slate-950 px-4 py-16">
       {/* Header */}

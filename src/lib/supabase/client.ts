@@ -1,11 +1,5 @@
 /**
  * Cliente Supabase para Client Components (browser)
- * Usa @supabase/ssr createBrowserClient – mantiene la sesión en cookies.
- *
- * Uso:
- *   'use client'
- *   import { createClient } from '@/lib/supabase/client'
- *   const supabase = createClient()
  */
 import { createBrowserClient } from '@supabase/ssr'
 import type { Database } from './types'

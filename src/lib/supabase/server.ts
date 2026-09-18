@@ -1,12 +1,5 @@
 /**
  * Cliente Supabase para Server Components, Server Actions y Route Handlers
- * Usa @supabase/ssr createServerClient con cookies de next/headers.
- *
- * Uso en Server Components / Actions:
- *   import { createClient } from '@/lib/supabase/server'
- *   const supabase = await createClient()
- *
- * IMPORTANTE: Esta función es async porque cookies() es async en Next.js 16+
  */
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'

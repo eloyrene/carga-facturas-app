@@ -1,25 +1,8 @@
 'use client'
 
-/**
- * InvoiceDropzone – Componente de carga de facturas
- *
- * Características:
- *  - Drag & Drop nativo (sin librerías externas)
- *  - Selector de archivos como fallback
- *  - Acepta: PDF, JPG, PNG, WebP, TIFF (máx. 10 MB)
- *  - Estados visuales: idle → dragging → uploading → success | error
- *  - Sube el archivo a Supabase Storage (bucket: invoices/{userId}/{filename})
- *  - Inserta fila en tabla `invoices` con status: 'pending'
- *  - Llama a POST /api/webhooks/process-invoice para activar n8n
- */
-
 import { useCallback, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import type { Invoice, InvoiceStatus } from '@/lib/supabase/types'
 
-// ----------------------------------------------------------------
-// Constantes
-// ----------------------------------------------------------------
 const ACCEPTED_MIME_TYPES = [
   'application/pdf',
   'image/jpeg',
@@ -28,11 +11,8 @@ const ACCEPTED_MIME_TYPES = [
   'image/tiff',
 ]
 const ACCEPTED_EXTENSIONS = '.pdf,.jpg,.jpeg,.png,.webp,.tiff,.tif'
-const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024 // 10 MB
+const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024
 
-// ----------------------------------------------------------------
-// Tipos
-// ----------------------------------------------------------------
 type UploadState =
   | { phase: 'idle' }
   | { phase: 'dragging' }
@@ -41,13 +21,9 @@ type UploadState =
   | { phase: 'error'; message: string }
 
 interface InvoiceDropzoneProps {
-  /** Callback opcional que se llama tras una subida exitosa */
   onSuccess?: (invoiceId: string, fileUrl: string) => void
 }
 
-// ----------------------------------------------------------------
-// Helpers
-// ----------------------------------------------------------------
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
@@ -56,7 +32,7 @@ function formatBytes(bytes: number): string {
 
 function validateFile(file: File): string | null {
   if (!ACCEPTED_MIME_TYPES.includes(file.type)) {
-    return `Tipo de archivo no permitido. Acepta: PDF, JPG, PNG, WebP, TIFF.`
+    return 'Tipo de archivo no permitido. Acepta: PDF, JPG, PNG, WebP, TIFF.'
   }
   if (file.size > MAX_FILE_SIZE_BYTES) {
     return `El archivo supera el límite de ${formatBytes(MAX_FILE_SIZE_BYTES)}.`
@@ -64,9 +40,6 @@ function validateFile(file: File): string | null {
   return null
 }
 
-// ----------------------------------------------------------------
-// Componentes internos de UI
-// ----------------------------------------------------------------
 function ProgressRing({ progress }: { progress: number }) {
   const radius = 28
   const circumference = 2 * Math.PI * radius
@@ -74,14 +47,12 @@ function ProgressRing({ progress }: { progress: number }) {
 
   return (
     <svg className="rotate-[-90deg]" width="72" height="72" viewBox="0 0 72 72">
-      {/* Track */}
       <circle
         cx="36" cy="36" r={radius}
         fill="none"
         stroke="rgba(139,92,246,0.15)"
         strokeWidth="5"
       />
-      {/* Progress */}
       <circle
         cx="36" cy="36" r={radius}
         fill="none"
@@ -131,20 +102,18 @@ function IconError() {
   )
 }
 
-// ----------------------------------------------------------------
-// Componente principal
-// ----------------------------------------------------------------
 export default function InvoiceDropzone({ onSuccess }: InvoiceDropzoneProps) {
   const [state, setState] = useState<UploadState>({ phase: 'idle' })
   const inputRef = useRef<HTMLInputElement>(null)
   const dragCounterRef = useRef(0)
 
-  // ------------------------------------------------------------
-  // Upload logic
-  // ------------------------------------------------------------
+  const setProgress = (progress: number) =>
+    setState((prev) =>
+      prev.phase === 'uploading' ? { ...prev, progress } : prev,
+    )
+
   const handleUpload = useCallback(
     async (file: File) => {
-      // Validar archivo
       const validationError = validateFile(file)
       if (validationError) {
         setState({ phase: 'error', message: validationError })
@@ -155,7 +124,6 @@ export default function InvoiceDropzone({ onSuccess }: InvoiceDropzoneProps) {
 
       const supabase = createClient()
 
-      // 1. Obtener usuario autenticado
       const {
         data: { user },
         error: userError,
@@ -169,15 +137,11 @@ export default function InvoiceDropzone({ onSuccess }: InvoiceDropzoneProps) {
         return
       }
 
-      // 2. Generar ruta única: {userId}/{timestamp}-{nombre}
       const timestamp = Date.now()
       const safeFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
       const storagePath = `${user.id}/${timestamp}-${safeFileName}`
 
-      // 3. Subir a Supabase Storage
-      setState((prev) =>
-        prev.phase === 'uploading' ? { ...prev, progress: 20 } : prev,
-      )
+      setProgress(20)
 
       const { error: uploadError } = await supabase.storage
         .from('invoices')
@@ -195,28 +159,29 @@ export default function InvoiceDropzone({ onSuccess }: InvoiceDropzoneProps) {
         return
       }
 
-      setState((prev) =>
-        prev.phase === 'uploading' ? { ...prev, progress: 50 } : prev,
-      )
+      setProgress(50)
 
-      // 4. Obtener URL pública/firmada del archivo
       const { data: urlData } = supabase.storage
         .from('invoices')
         .getPublicUrl(storagePath)
 
-      // Si el bucket es privado usaremos el path; la URL firmada se genera bajo demanda
       const fileUrl = urlData?.publicUrl ?? storagePath
 
-      // 5. Insertar fila en tabla invoices con status 'pending'
-      const { data: invoiceRow, error: dbError } = await (supabase as any)
-        .from('invoices')
+      const { data: invoiceRow, error: dbError } = await (supabase
+        .from('invoices' as never) as unknown as {
+          insert: (doc: Record<string, unknown>) => {
+            select: (col: string) => {
+              single: <T>() => Promise<{ data: T | null; error: Error | null }>
+            }
+          }
+        })
         .insert({
           user_id: user.id,
           file_url: fileUrl,
           status: 'pending',
         })
         .select('id')
-        .single()
+        .single<{ id: string }>()
 
       if (dbError || !invoiceRow) {
         setState({
@@ -226,44 +191,41 @@ export default function InvoiceDropzone({ onSuccess }: InvoiceDropzoneProps) {
         return
       }
 
-      setState((prev) =>
-        prev.phase === 'uploading' ? { ...prev, progress: 75 } : prev,
-      )
+      setProgress(75)
 
-      // 6. Activar webhook de n8n
       try {
-          const webhookRes = await fetch('/api/webhooks/process-invoice', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-            invoiceId: invoiceRow.id,
-              fileUrl,
-            userId: user.id,
-            }),
-          })
+        const webhookUrl = process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL;
 
-          if (!webhookRes.ok) {
-          console.warn('[InvoiceDropzone] Webhook respondió con error:', webhookRes.status)
-            // No bloqueamos: la factura ya está en BD, el estado es 'pending'
-          }
+        if (!webhookUrl) {
+          console.error('NEXT_PUBLIC_N8N_WEBHOOK_URL no está definida en .env.local');
+          return;
+        }
+
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('invoiceId', invoiceRow.id);
+        formData.append('userId', user.id);
+
+        const webhookRes = await fetch(webhookUrl, {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (!webhookRes.ok) {
+          console.error('Error al notificar a n8n:', await webhookRes.text());
+        }
       } catch (err) {
-        console.warn('[InvoiceDropzone] Error al llamar webhook:', err)
+        console.warn('[InvoiceDropzone] Webhook call failed:', err)
       }
 
-      setState((prev) =>
-        prev.phase === 'uploading' ? { ...prev, progress: 100 } : prev,
-      )
+      setProgress(100)
 
-      // 7. Estado final: éxito
       setState({ phase: 'success', fileName: file.name, invoiceId: invoiceRow.id })
       onSuccess?.(invoiceRow.id, fileUrl)
     },
     [onSuccess],
   )
 
-  // ------------------------------------------------------------
-  // Drag & Drop handlers
-  // ------------------------------------------------------------
   const handleDragEnter = (e: React.DragEvent) => {
     e.preventDefault()
     e.stopPropagation()
@@ -298,7 +260,6 @@ export default function InvoiceDropzone({ onSuccess }: InvoiceDropzoneProps) {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) void handleUpload(file)
-    // Reset input para permitir re-subir el mismo archivo
     e.target.value = ''
   }
 
@@ -307,12 +268,8 @@ export default function InvoiceDropzone({ onSuccess }: InvoiceDropzoneProps) {
     setState({ phase: 'idle' })
   }
 
-  // ------------------------------------------------------------
-  // Render
-  // ------------------------------------------------------------
   return (
     <div className="w-full max-w-xl mx-auto">
-      {/* Input oculto */}
       <input
         ref={inputRef}
         id="invoice-file-input"
@@ -323,7 +280,6 @@ export default function InvoiceDropzone({ onSuccess }: InvoiceDropzoneProps) {
         onChange={handleFileChange}
       />
 
-      {/* Zona de drop */}
       <div
         role="button"
         tabIndex={0}
@@ -347,9 +303,7 @@ export default function InvoiceDropzone({ onSuccess }: InvoiceDropzoneProps) {
           'rounded-2xl border-2 border-dashed p-10 text-center',
           'cursor-pointer select-none outline-none',
           'transition-all duration-300',
-          // Anillo de foco para accesibilidad
           'focus-visible:ring-4 focus-visible:ring-violet-500/50',
-          // Variantes de estado
           state.phase === 'idle'
             ? 'border-zinc-300 bg-zinc-50 hover:border-violet-400 hover:bg-violet-50/40 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:border-violet-500 dark:hover:bg-violet-950/20'
             : state.phase === 'dragging'
@@ -361,7 +315,6 @@ export default function InvoiceDropzone({ onSuccess }: InvoiceDropzoneProps) {
                   : 'border-rose-400 bg-rose-50/50 cursor-default dark:bg-rose-950/20',
         ].join(' ')}
       >
-        {/* ---- IDLE ---- */}
         {state.phase === 'idle' && (
           <>
             <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 to-cyan-500 text-white shadow-md shadow-violet-300/40">
@@ -394,7 +347,6 @@ export default function InvoiceDropzone({ onSuccess }: InvoiceDropzoneProps) {
           </>
         )}
 
-        {/* ---- DRAGGING ---- */}
         {state.phase === 'dragging' && (
           <>
             <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 to-cyan-500 text-white shadow-lg shadow-violet-400/50 animate-bounce">
@@ -406,7 +358,6 @@ export default function InvoiceDropzone({ onSuccess }: InvoiceDropzoneProps) {
           </>
         )}
 
-        {/* ---- UPLOADING ---- */}
         {state.phase === 'uploading' && (
           <>
             <div className="relative flex items-center justify-center">
@@ -426,7 +377,6 @@ export default function InvoiceDropzone({ onSuccess }: InvoiceDropzoneProps) {
           </>
         )}
 
-        {/* ---- SUCCESS ---- */}
         {state.phase === 'success' && (
           <>
             <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-500 text-white shadow-md shadow-emerald-300/40">
@@ -457,7 +407,6 @@ export default function InvoiceDropzone({ onSuccess }: InvoiceDropzoneProps) {
           </>
         )}
 
-        {/* ---- ERROR ---- */}
         {state.phase === 'error' && (
           <>
             <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-rose-500 text-white shadow-md shadow-rose-300/40">
@@ -486,7 +435,6 @@ export default function InvoiceDropzone({ onSuccess }: InvoiceDropzoneProps) {
         )}
       </div>
 
-      {/* Info de accesibilidad */}
       <p className="mt-2 text-center text-[11px] text-zinc-400 dark:text-zinc-600">
         Tus facturas se almacenan de forma segura y son de acceso privado.
       </p>

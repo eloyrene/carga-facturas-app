@@ -1,25 +1,6 @@
-/**
- * Route Handler: POST /api/webhooks/process-invoice
- *
- * Recibe la notificación de nueva factura y dispara el workflow de n8n
- * para la extracción de datos con OCR/IA.
- *
- * Body esperado (JSON):
- *   { invoiceId: string, fileUrl: string, userId: string }
- *
- * Responde:
- *   200 { success: true, n8nJobId?: string }
- *   400 { error: string }
- *   401 { error: 'Unauthorized' }
- *   500 { error: string }
- */
 import type { NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import type { InvoiceStatus } from '@/lib/supabase/types'
 
-// ----------------------------------------------------------------
-// Tipos
-// ----------------------------------------------------------------
 interface ProcessInvoiceBody {
   invoiceId: string
   fileUrl: string
@@ -27,16 +8,11 @@ interface ProcessInvoiceBody {
 }
 
 interface N8nWebhookResponse {
-  /** n8n puede devolver un execution id */
   executionId?: string
   [key: string]: unknown
 }
 
-// ----------------------------------------------------------------
-// POST handler
-// ----------------------------------------------------------------
 export async function POST(request: NextRequest): Promise<Response> {
-  // 1. Verificar autenticación
   const supabase = await createClient()
   const {
     data: { user },
@@ -47,7 +23,6 @@ export async function POST(request: NextRequest): Promise<Response> {
     return Response.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  // 2. Parsear y validar body
   let body: ProcessInvoiceBody
   try {
     body = (await request.json()) as ProcessInvoiceBody
@@ -67,7 +42,6 @@ export async function POST(request: NextRequest): Promise<Response> {
     return Response.json({ error: 'userId is required' }, { status: 400 })
   }
 
-  // 3. Verificar que la factura pertenece al usuario autenticado
   const { data: invoice, error: invoiceError } = await supabase
     .from('invoices')
     .select('id, user_id, status')
@@ -82,7 +56,6 @@ export async function POST(request: NextRequest): Promise<Response> {
     )
   }
 
-  // 4. Disparar webhook de n8n
   const n8nWebhookUrl = process.env.N8N_WEBHOOK_URL
   if (!n8nWebhookUrl) {
     console.error('[process-invoice] N8N_WEBHOOK_URL is not configured')
@@ -99,7 +72,6 @@ export async function POST(request: NextRequest): Promise<Response> {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        // Opcional: clave secreta para validar que el request viene de tu app
         ...(process.env.N8N_WEBHOOK_SECRET
           ? { 'x-webhook-secret': process.env.N8N_WEBHOOK_SECRET }
           : {}),
@@ -122,9 +94,12 @@ export async function POST(request: NextRequest): Promise<Response> {
   } catch (err) {
     console.error('[process-invoice] Failed to call n8n webhook:', err)
 
-    // Marcar la factura como 'error' si el webhook falló
-    await (supabase as any)
-      .from('invoices')
+    await (supabase
+      .from('invoices' as never) as unknown as {
+        update: (doc: Record<string, unknown>) => {
+          eq: (col: string, val: string) => Promise<unknown>
+        }
+      })
       .update({ status: 'error' })
       .eq('id', invoiceId)
 
@@ -134,7 +109,6 @@ export async function POST(request: NextRequest): Promise<Response> {
     )
   }
 
-  // 5. Respuesta exitosa
   return Response.json(
     {
       success: true,

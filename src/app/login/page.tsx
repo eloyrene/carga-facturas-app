@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 
 export default function LoginPage() {
@@ -9,15 +10,18 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
-  const [message, setMessage] = useState<string | null>(null)
   const router = useRouter()
   const supabase = createClient()
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!email || !password) {
+      setError('Por favor, ingresa tu correo y contraseña.')
+      return
+    }
+    
     setLoading(true)
     setError(null)
-    setMessage(null)
 
     const { error } = await supabase.auth.signInWithPassword({
       email,
@@ -32,29 +36,6 @@ export default function LoginPage() {
     }
   }
 
-  const handleSignUp = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setLoading(true)
-    setError(null)
-    setMessage(null)
-
-    const { error, data } = await supabase.auth.signUp({
-      email,
-      password,
-    })
-
-    if (error) {
-      setError(error.message)
-    } else {
-      if (data?.session) {
-        router.push('/')
-      } else {
-        setMessage('Revisa tu correo para confirmar tu cuenta.')
-      }
-    }
-    setLoading(false)
-  }
-
   return (
     <div className="flex min-h-screen flex-col items-center justify-center p-4 bg-zinc-50 dark:bg-zinc-950">
       <div className="w-full max-w-md space-y-8 rounded-2xl bg-white p-8 shadow-xl dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800">
@@ -63,7 +44,7 @@ export default function LoginPage() {
             Bienvenido
           </h2>
           <p className="mt-2 text-center text-sm text-zinc-600 dark:text-zinc-400">
-            Inicia sesión o regístrate para cargar tus facturas.
+            Inicia sesión para cargar tus facturas.
           </p>
         </div>
 
@@ -109,28 +90,24 @@ export default function LoginPage() {
             </div>
           )}
           
-          {message && (
-            <div className="text-sm text-emerald-600 bg-emerald-50 dark:bg-emerald-950/50 p-3 rounded-md border border-emerald-200 dark:border-emerald-900">
-              {message}
-            </div>
-          )}
-
           <div className="flex flex-col gap-3">
             <button
               type="submit"
               disabled={loading}
               className="group relative flex w-full justify-center rounded-md border border-transparent bg-violet-600 py-2 px-4 text-sm font-medium text-white hover:bg-violet-700 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:ring-offset-2 disabled:opacity-50 transition-colors"
             >
-              Iniciar sesión
+              {loading ? 'Iniciando...' : 'Iniciar sesión'}
             </button>
-            <button
-              type="button"
-              onClick={handleSignUp}
-              disabled={loading}
-              className="group relative flex w-full justify-center rounded-md border border-zinc-300 bg-white dark:bg-zinc-800 dark:border-zinc-700 py-2 px-4 text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-700 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:ring-offset-2 disabled:opacity-50 transition-colors"
-            >
-              Registrarse
-            </button>
+            
+            <div className="text-center mt-2">
+              <span className="text-sm text-zinc-500 dark:text-zinc-400">¿No tienes cuenta? </span>
+              <Link
+                href="/register"
+                className="text-sm font-medium text-violet-600 hover:text-violet-500 dark:text-violet-400 dark:hover:text-violet-300"
+              >
+                Regístrate aquí
+              </Link>
+            </div>
           </div>
         </form>
       </div>
