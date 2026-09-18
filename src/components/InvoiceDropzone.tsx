@@ -232,20 +232,20 @@ export default function InvoiceDropzone({ onSuccess }: InvoiceDropzoneProps) {
 
       // 6. Activar webhook de n8n
       try {
-        const webhookRes = await fetch('/api/webhooks/process-invoice', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+          const webhookRes = await fetch('/api/webhooks/process-invoice', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
             invoiceId: invoiceRow.id,
-            fileUrl,
+              fileUrl,
             userId: user.id,
-          }),
-        })
+            }),
+          })
 
-        if (!webhookRes.ok) {
+          if (!webhookRes.ok) {
           console.warn('[InvoiceDropzone] Webhook respondió con error:', webhookRes.status)
-          // No bloqueamos: la factura ya está en BD, el estado es 'pending'
-        }
+            // No bloqueamos: la factura ya está en BD, el estado es 'pending'
+          }
       } catch (err) {
         console.warn('[InvoiceDropzone] Error al llamar webhook:', err)
       }
