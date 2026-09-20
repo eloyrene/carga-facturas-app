@@ -1,24 +1,19 @@
 'use client'
 
 import { useCallback, useRef, useState } from 'react'
+import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
 
+// Solo PDF, JPG y PNG según la especificación técnica v2
 const ACCEPTED_MIME_TYPES = [
   'application/pdf',
   'image/jpeg',
   'image/png',
-  'image/webp',
-  'image/tiff',
 ]
-const ACCEPTED_EXTENSIONS = '.pdf,.jpg,.jpeg,.png,.webp,.tiff,.tif'
-const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024
+const ACCEPTED_EXTENSIONS = '.pdf,.jpg,.jpeg,.png'
+const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024 // 10 MB
 
-type UploadState =
-  | { phase: 'idle' }
-  | { phase: 'dragging' }
-  | { phase: 'uploading'; progress: number; fileName: string }
-  | { phase: 'success'; fileName: string; invoiceId: string }
-  | { phase: 'error'; message: string }
+type DropPhase = 'idle' | 'dragging' | 'uploading'
 
 interface InvoiceDropzoneProps {
   onSuccess?: (invoiceId: string, fileUrl: string) => void
@@ -32,10 +27,10 @@ function formatBytes(bytes: number): string {
 
 function validateFile(file: File): string | null {
   if (!ACCEPTED_MIME_TYPES.includes(file.type)) {
-    return 'Tipo de archivo no permitido. Acepta: PDF, JPG, PNG, WebP, TIFF.'
+    return `Formato no permitido (${file.type || 'desconocido'}). Solo se aceptan: PDF, JPG y PNG.`
   }
   if (file.size > MAX_FILE_SIZE_BYTES) {
-    return `El archivo supera el límite de ${formatBytes(MAX_FILE_SIZE_BYTES)}.`
+    return `El archivo supera el límite de ${formatBytes(MAX_FILE_SIZE_BYTES)}. Tamaño actual: ${formatBytes(file.size)}.`
   }
   return null
 }
@@ -44,15 +39,9 @@ function ProgressRing({ progress }: { progress: number }) {
   const radius = 28
   const circumference = 2 * Math.PI * radius
   const offset = circumference - (progress / 100) * circumference
-
   return (
     <svg className="rotate-[-90deg]" width="72" height="72" viewBox="0 0 72 72">
-      <circle
-        cx="36" cy="36" r={radius}
-        fill="none"
-        stroke="rgba(139,92,246,0.15)"
-        strokeWidth="5"
-      />
+      <circle cx="36" cy="36" r={radius} fill="none" stroke="rgba(139,92,246,0.15)" strokeWidth="5" />
       <circle
         cx="36" cy="36" r={radius}
         fill="none"
@@ -83,57 +72,44 @@ function IconUpload() {
   )
 }
 
-function IconCheck() {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-      <polyline points="22 4 12 14.01 9 11.01" />
-    </svg>
-  )
-}
-
-function IconError() {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="10" />
-      <line x1="15" y1="9" x2="9" y2="15" />
-      <line x1="9" y1="9" x2="15" y2="15" />
-    </svg>
-  )
-}
-
 export default function InvoiceDropzone({ onSuccess }: InvoiceDropzoneProps) {
-  const [state, setState] = useState<UploadState>({ phase: 'idle' })
+  const [phase, setPhase] = useState<DropPhase>('idle')
+  const [progress, setProgress] = useState(0)
+  const [fileName, setFileName] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
   const dragCounterRef = useRef(0)
 
-  const setProgress = (progress: number) =>
-    setState((prev) =>
-      prev.phase === 'uploading' ? { ...prev, progress } : prev,
-    )
-
   const handleUpload = useCallback(
     async (file: File) => {
+      // Validación de archivo
       const validationError = validateFile(file)
       if (validationError) {
-        setState({ phase: 'error', message: validationError })
+        toast.error('Archivo no válido', {
+          description: validationError,
+        })
         return
       }
 
-      setState({ phase: 'uploading', progress: 0, fileName: file.name })
+      setPhase('uploading')
+      setProgress(5)
+      setFileName(file.name)
+
+      const toastId = toast.loading('Subiendo factura…', {
+        description: `${file.name} (${formatBytes(file.size)})`,
+      })
 
       const supabase = createClient()
-
       const {
         data: { user },
         error: userError,
       } = await supabase.auth.getUser()
 
       if (userError || !user) {
-        setState({
-          phase: 'error',
-          message: 'Debes iniciar sesión para subir facturas.',
+        toast.error('No autenticado', {
+          id: toastId,
+          description: 'Debes iniciar sesión para subir facturas.',
         })
+        setPhase('idle')
         return
       }
 
@@ -143,6 +119,7 @@ export default function InvoiceDropzone({ onSuccess }: InvoiceDropzoneProps) {
 
       setProgress(20)
 
+      // Upload al storage de Supabase
       const { error: uploadError } = await supabase.storage
         .from('invoices')
         .upload(storagePath, file, {
@@ -152,10 +129,11 @@ export default function InvoiceDropzone({ onSuccess }: InvoiceDropzoneProps) {
         })
 
       if (uploadError) {
-        setState({
-          phase: 'error',
-          message: `Error al subir archivo: ${uploadError.message}`,
+        toast.error('Error al subir el archivo', {
+          id: toastId,
+          description: uploadError.message,
         })
+        setPhase('idle')
         return
       }
 
@@ -167,61 +145,102 @@ export default function InvoiceDropzone({ onSuccess }: InvoiceDropzoneProps) {
 
       const fileUrl = urlData?.publicUrl ?? storagePath
 
-      const { data: invoiceRow, error: dbError } = await (supabase
-        .from('invoices' as never) as unknown as {
-          insert: (doc: Record<string, unknown>) => {
-            select: (col: string) => {
-              single: <T>() => Promise<{ data: T | null; error: Error | null }>
-            }
-          }
-        })
+      // Crear el registro de la factura en la base de datos
+      const { data: invoiceRow, error: dbError } = await supabase
+        .from('invoices')
         .insert({
           user_id: user.id,
           file_url: fileUrl,
           status: 'pending',
         })
         .select('id')
-        .single<{ id: string }>()
+        .single()
 
       if (dbError || !invoiceRow) {
-        setState({
-          phase: 'error',
-          message: `Error al registrar factura: ${dbError?.message ?? 'unknown'}`,
+        toast.error('Error al registrar la factura', {
+          id: toastId,
+          description: dbError?.message ?? 'Error desconocido en la base de datos.',
         })
+        setPhase('idle')
         return
       }
 
       setProgress(75)
+      toast.loading('Enviando a procesamiento con IA…', {
+        id: toastId,
+        description: 'Gemini 2.5 Flash está analizando tu factura.',
+      })
 
+      // Llamar al webhook de n8n
       try {
-        const webhookUrl = process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL;
+        const webhookUrl = process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL
+        if (webhookUrl) {
+          const formData = new FormData()
+          formData.append('file', file)
+          formData.append('invoiceId', invoiceRow.id)
+          formData.append('userId', user.id)
 
-        if (!webhookUrl) {
-          console.error('NEXT_PUBLIC_N8N_WEBHOOK_URL no está definida en .env.local');
-          return;
+          const webhookRes = await fetch(webhookUrl, {
+            method: 'POST',
+            body: formData,
+          })
+
+          if (webhookRes.ok) {
+            // Intentar leer la respuesta de n8n para saber el estado final
+            try {
+              const result = await webhookRes.json() as { status?: string; confidence_score?: number }
+              if (result.status === 'needs_review') {
+                toast.warning('Revisión requerida', {
+                  id: toastId,
+                  description: `La IA detectó baja confianza (${((result.confidence_score ?? 0) * 100).toFixed(0)}%). Ve a Verificación para confirmar los datos.`,
+                  duration: 8000,
+                })
+              } else if (result.status === 'processed') {
+                toast.success('Factura procesada con éxito', {
+                  id: toastId,
+                  description: 'Los datos han sido extraídos y guardados en el inventario.',
+                })
+              } else {
+                toast.success('Factura en procesamiento', {
+                  id: toastId,
+                  description: 'La IA está analizando tu factura. Los resultados aparecerán en el historial.',
+                })
+              }
+            } catch {
+              toast.success('Factura enviada correctamente', {
+                id: toastId,
+                description: 'El procesamiento con IA comenzará en breve.',
+              })
+            }
+          } else {
+            toast.warning('Factura subida, IA pendiente', {
+              id: toastId,
+              description: 'El archivo fue subido pero el procesamiento automático no pudo iniciarse.',
+            })
+          }
+        } else {
+          toast.success('Factura registrada', {
+            id: toastId,
+            description: 'Archivo guardado. Configura NEXT_PUBLIC_N8N_WEBHOOK_URL para activar la IA.',
+          })
         }
-
-        const formData = new FormData();
-        formData.append('file', file);
-        formData.append('invoiceId', invoiceRow.id);
-        formData.append('userId', user.id);
-
-        const webhookRes = await fetch(webhookUrl, {
-          method: 'POST',
-          body: formData,
-        });
-
-        if (!webhookRes.ok) {
-          console.error('Error al notificar a n8n:', await webhookRes.text());
-        }
-      } catch (err) {
-        console.warn('[InvoiceDropzone] Webhook call failed:', err)
+      } catch {
+        toast.warning('Factura subida, pero la IA no respondió', {
+          id: toastId,
+          description: 'El archivo fue guardado. Puedes revisar el estado en Historial.',
+          duration: 7000,
+        })
       }
 
       setProgress(100)
-
-      setState({ phase: 'success', fileName: file.name, invoiceId: invoiceRow.id })
       onSuccess?.(invoiceRow.id, fileUrl)
+
+      // Resetear el dropzone después de un momento
+      setTimeout(() => {
+        setPhase('idle')
+        setProgress(0)
+        setFileName('')
+      }, 2000)
     },
     [onSuccess],
   )
@@ -230,18 +249,14 @@ export default function InvoiceDropzone({ onSuccess }: InvoiceDropzoneProps) {
     e.preventDefault()
     e.stopPropagation()
     dragCounterRef.current++
-    if (state.phase === 'idle') {
-      setState({ phase: 'dragging' })
-    }
+    if (phase === 'idle') setPhase('dragging')
   }
 
   const handleDragLeave = (e: React.DragEvent) => {
     e.preventDefault()
     e.stopPropagation()
     dragCounterRef.current--
-    if (dragCounterRef.current === 0) {
-      setState({ phase: 'idle' })
-    }
+    if (dragCounterRef.current === 0) setPhase('idle')
   }
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -263,10 +278,7 @@ export default function InvoiceDropzone({ onSuccess }: InvoiceDropzoneProps) {
     e.target.value = ''
   }
 
-  const handleReset = () => {
-    dragCounterRef.current = 0
-    setState({ phase: 'idle' })
-  }
+  const isUploading = phase === 'uploading'
 
   return (
     <div className="w-full max-w-xl mx-auto">
@@ -278,6 +290,7 @@ export default function InvoiceDropzone({ onSuccess }: InvoiceDropzoneProps) {
         className="sr-only"
         aria-label="Seleccionar factura"
         onChange={handleFileChange}
+        disabled={isUploading}
       />
 
       <div
@@ -287,35 +300,30 @@ export default function InvoiceDropzone({ onSuccess }: InvoiceDropzoneProps) {
         onDragEnter={handleDragEnter}
         onDragLeave={handleDragLeave}
         onDragOver={handleDragOver}
-        onDrop={state.phase === 'uploading' ? undefined : handleDrop}
+        onDrop={isUploading ? undefined : handleDrop}
         onClick={() => {
-          if (state.phase === 'idle' || state.phase === 'dragging') {
-            inputRef.current?.click()
-          }
+          if (!isUploading) inputRef.current?.click()
         }}
         onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
+          if ((e.key === 'Enter' || e.key === ' ') && !isUploading) {
             inputRef.current?.click()
           }
         }}
         className={[
           'relative flex flex-col items-center justify-center gap-4',
           'rounded-2xl border-2 border-dashed p-10 text-center',
-          'cursor-pointer select-none outline-none',
+          'select-none outline-none',
           'transition-all duration-300',
           'focus-visible:ring-4 focus-visible:ring-violet-500/50',
-          state.phase === 'idle'
+          !isUploading ? 'cursor-pointer' : 'cursor-default',
+          phase === 'idle'
             ? 'border-zinc-300 bg-zinc-50 hover:border-violet-400 hover:bg-violet-50/40 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:border-violet-500 dark:hover:bg-violet-950/20'
-            : state.phase === 'dragging'
+            : phase === 'dragging'
               ? 'border-violet-500 bg-violet-50 scale-[1.01] shadow-lg shadow-violet-200/60 dark:bg-violet-950/30 dark:shadow-violet-900/40'
-              : state.phase === 'uploading'
-                ? 'border-cyan-400 bg-cyan-50/40 cursor-default dark:bg-cyan-950/20'
-                : state.phase === 'success'
-                  ? 'border-emerald-400 bg-emerald-50/50 cursor-default dark:bg-emerald-950/20'
-                  : 'border-rose-400 bg-rose-50/50 cursor-default dark:bg-rose-950/20',
+              : 'border-cyan-400 bg-cyan-50/40 dark:bg-cyan-950/20',
         ].join(' ')}
       >
-        {state.phase === 'idle' && (
+        {phase === 'idle' && (
           <>
             <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 to-cyan-500 text-white shadow-md shadow-violet-300/40">
               <IconUpload />
@@ -332,7 +340,7 @@ export default function InvoiceDropzone({ onSuccess }: InvoiceDropzoneProps) {
               </p>
             </div>
             <div className="flex flex-wrap justify-center gap-2 text-xs text-zinc-400 dark:text-zinc-500">
-              {['PDF', 'JPG', 'PNG', 'WebP', 'TIFF'].map((ext) => (
+              {['PDF', 'JPG', 'PNG'].map((ext) => (
                 <span
                   key={ext}
                   className="rounded-md border border-zinc-200 bg-white px-2 py-0.5 dark:border-zinc-700 dark:bg-zinc-800"
@@ -347,7 +355,7 @@ export default function InvoiceDropzone({ onSuccess }: InvoiceDropzoneProps) {
           </>
         )}
 
-        {state.phase === 'dragging' && (
+        {phase === 'dragging' && (
           <>
             <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 to-cyan-500 text-white shadow-lg shadow-violet-400/50 animate-bounce">
               <IconUpload />
@@ -358,79 +366,22 @@ export default function InvoiceDropzone({ onSuccess }: InvoiceDropzoneProps) {
           </>
         )}
 
-        {state.phase === 'uploading' && (
+        {phase === 'uploading' && (
           <>
             <div className="relative flex items-center justify-center">
-              <ProgressRing progress={state.progress} />
+              <ProgressRing progress={progress} />
               <span className="absolute text-sm font-bold text-violet-700 dark:text-violet-300">
-                {state.progress}%
+                {progress}%
               </span>
             </div>
             <div>
               <p className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">
-                Subiendo…
+                Procesando…
               </p>
               <p className="mt-0.5 max-w-[240px] truncate text-xs text-zinc-500 dark:text-zinc-400">
-                {state.fileName}
+                {fileName}
               </p>
             </div>
-          </>
-        )}
-
-        {state.phase === 'success' && (
-          <>
-            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-500 text-white shadow-md shadow-emerald-300/40">
-              <IconCheck />
-            </div>
-            <div>
-              <p className="text-base font-bold text-emerald-700 dark:text-emerald-400">
-                ¡Factura recibida!
-              </p>
-              <p className="mt-0.5 max-w-[240px] truncate text-xs text-zinc-500 dark:text-zinc-400">
-                {state.fileName}
-              </p>
-              <p className="mt-1 text-xs text-emerald-600 dark:text-emerald-500">
-                En procesamiento con IA…
-              </p>
-            </div>
-            <button
-              id="dropzone-reset-btn"
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation()
-                handleReset()
-              }}
-              className="mt-1 rounded-lg bg-emerald-100 px-4 py-1.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-300 dark:hover:bg-emerald-900"
-            >
-              Subir otra factura
-            </button>
-          </>
-        )}
-
-        {state.phase === 'error' && (
-          <>
-            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-rose-500 text-white shadow-md shadow-rose-300/40">
-              <IconError />
-            </div>
-            <div>
-              <p className="text-base font-bold text-rose-700 dark:text-rose-400">
-                Error al subir
-              </p>
-              <p className="mt-1 max-w-[280px] text-xs text-rose-600 dark:text-rose-500">
-                {state.message}
-              </p>
-            </div>
-            <button
-              id="dropzone-retry-btn"
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation()
-                handleReset()
-              }}
-              className="mt-1 rounded-lg bg-rose-100 px-4 py-1.5 text-xs font-semibold text-rose-700 transition hover:bg-rose-200 dark:bg-rose-900/40 dark:text-rose-300 dark:hover:bg-rose-900"
-            >
-              Intentar de nuevo
-            </button>
           </>
         )}
       </div>

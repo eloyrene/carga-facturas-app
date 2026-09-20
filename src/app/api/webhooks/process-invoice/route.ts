@@ -1,5 +1,6 @@
 import type { NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import type { InvoiceStatus } from '@/lib/supabase/types'
 
 interface ProcessInvoiceBody {
   invoiceId: string
@@ -8,6 +9,9 @@ interface ProcessInvoiceBody {
 }
 
 interface N8nWebhookResponse {
+  success?: boolean
+  status?: InvoiceStatus
+  confidence_score?: number
   executionId?: string
   [key: string]: unknown
 }
@@ -42,6 +46,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     return Response.json({ error: 'userId is required' }, { status: 400 })
   }
 
+  // Verificar que la factura pertenece al usuario autenticado
   const { data: invoice, error: invoiceError } = await supabase
     .from('invoices')
     .select('id, user_id, status')
@@ -94,13 +99,10 @@ export async function POST(request: NextRequest): Promise<Response> {
   } catch (err) {
     console.error('[process-invoice] Failed to call n8n webhook:', err)
 
-    await (supabase
-      .from('invoices' as never) as unknown as {
-        update: (doc: Record<string, unknown>) => {
-          eq: (col: string, val: string) => Promise<unknown>
-        }
-      })
-      .update({ status: 'error' })
+    // Marcar la factura como fallida
+    await supabase
+      .from('invoices')
+      .update({ status: 'failed' })
       .eq('id', invoiceId)
 
     return Response.json(
@@ -113,6 +115,8 @@ export async function POST(request: NextRequest): Promise<Response> {
     {
       success: true,
       invoiceId,
+      status: n8nResponse?.status,
+      confidence_score: n8nResponse?.confidence_score,
       ...(n8nResponse?.executionId
         ? { n8nJobId: n8nResponse.executionId }
         : {}),
