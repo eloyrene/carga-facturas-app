@@ -5,7 +5,7 @@ import { useCallback, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
 
-// Solo PDF, JPG y PNG según la especificación técnica v2
+// Formatos permitidos: PDF, JPG y PNG
 const ACCEPTED_MIME_TYPES = [
   'application/pdf',
   'image/jpeg',

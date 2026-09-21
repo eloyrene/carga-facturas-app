@@ -1,7 +1,5 @@
 /**
- * Tipos TypeScript para las tablas de Supabase
- * Proyecto 4 – Sistema de Gestión de Inventario y Facturas
- * Versión 2 – Incluye invoice_items, products, confidence_score
+ * Tipos TypeScript para el esquema de base de datos de Supabase
  */
 
 export type UserRole = 'admin' | 'user'
