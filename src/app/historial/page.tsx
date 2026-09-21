@@ -4,6 +4,9 @@ import AppShell from '@/components/AppShell'
 import InvoiceHistoryClient from '@/components/InvoiceHistoryClient'
 import type { Invoice, InvoiceItem } from '@/lib/supabase/types'
 
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
 export const metadata: Metadata = {
   title: 'Historial de Facturas',
   description: 'Listado completo de facturas procesadas con filtros y exportación CSV.',

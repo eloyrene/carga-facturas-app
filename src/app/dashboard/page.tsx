@@ -2,6 +2,9 @@ import type { Metadata } from 'next'
 import { createClient } from '@/lib/supabase/server'
 import AppShell from '@/components/AppShell'
 
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
 export const metadata: Metadata = {
   title: 'Dashboard de Inventario',
   description: 'Métricas KPI y maestro de productos del inventario.',
@@ -59,19 +62,21 @@ export default async function DashboardPage() {
   const todayIso = today.toISOString()
 
   const [
+    { count: totalInvoicesCount },
     { data: invoicesToday },
     { data: allInvoices },
     { data: processedInvoices },
     { data: pendingInvoices },
   ] = await Promise.all([
-    supabase.from('invoices').select('id').eq('status', 'processed').gte('created_at', todayIso),
+    supabase.from('invoices').select('id', { count: 'exact', head: true }),
+    supabase.from('invoices').select('id').gte('created_at', todayIso),
     supabase.from('invoices').select('id, vendor_name, invoice_number, invoice_date, total_amount, status, created_at').order('created_at', { ascending: false }).limit(10),
     supabase.from('invoices').select('total_amount').eq('status', 'processed'),
     supabase.from('invoices').select('id').in('status', ['pending', 'needs_review']),
   ])
 
   const processedToday = invoicesToday?.length ?? 0
-  const totalInvoicesCount = (allInvoices?.length ?? 0)
+  const totalCount = totalInvoicesCount ?? 0
   const totalAmountSum = processedInvoices?.reduce((acc, inv) => acc + (Number(inv.total_amount) || 0), 0) ?? 0
   const pendingCount = pendingInvoices?.length ?? 0
 
@@ -104,7 +109,7 @@ export default async function DashboardPage() {
             />
             <KpiCard
               label="Total de Facturas"
-              value={totalInvoicesCount.toLocaleString('es-MX')}
+              value={totalCount.toLocaleString('es-MX')}
               sub="facturas registradas"
               icon="📑"
               accent="border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900"

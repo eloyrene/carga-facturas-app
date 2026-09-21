@@ -2,6 +2,9 @@ import type { Metadata } from 'next'
 import { createClient } from '@/lib/supabase/server'
 import AppShell from '@/components/AppShell'
 
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
 export const metadata: Metadata = {
   title: 'Catálogo de Productos',
   description: 'Listado de productos extraídos con cantidades y precios.',
