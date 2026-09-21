@@ -9,7 +9,7 @@
  */
 import type { NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import type { InvoiceItem } from '@/lib/supabase/types'
+import type { InvoiceItem, InvoiceUpdate } from '@/lib/supabase/types'
 
 interface ConfirmBody {
   header?: {
@@ -70,15 +70,12 @@ export async function POST(
   }
 
   // ── 0. Opcional: Actualizar cabecera de la factura ────────────────
-  let finalStatus = 'processed'
-  
-  const updateInvoicePayload: Record<string, any> = { status: finalStatus }
-  
-  if (header) {
-    if (header.vendor_name !== undefined) updateInvoicePayload.vendor_name = header.vendor_name
-    if (header.invoice_number !== undefined) updateInvoicePayload.invoice_number = header.invoice_number
-    if (header.invoice_date !== undefined) updateInvoicePayload.invoice_date = header.invoice_date
-    if (header.total_amount !== undefined) updateInvoicePayload.total_amount = header.total_amount
+  const updateInvoicePayload: InvoiceUpdate = {
+    status: 'processed',
+    ...(header?.vendor_name !== undefined ? { vendor_name: header.vendor_name } : {}),
+    ...(header?.invoice_number !== undefined ? { invoice_number: header.invoice_number } : {}),
+    ...(header?.invoice_date !== undefined ? { invoice_date: header.invoice_date } : {}),
+    ...(header?.total_amount !== undefined ? { total_amount: header.total_amount } : {}),
   }
 
   // ── 1. Actualizar invoice_items con los datos corregidos ───────────

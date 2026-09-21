@@ -16,7 +16,7 @@
  */
 import type { NextRequest } from 'next/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
-import type { Database, InvoiceStatus } from '@/lib/supabase/types'
+import type { Database, InvoiceStatus, InvoiceUpdate } from '@/lib/supabase/types'
 
 interface CallbackBody {
   invoiceId: string
@@ -65,9 +65,9 @@ export async function POST(request: NextRequest): Promise<Response> {
 
   const supabase = createServiceClient<Database>(supabaseUrl, serviceRoleKey)
 
-  const updatePayload: Record<string, unknown> = { status }
-  if (typeof confidence_score === 'number') {
-    updatePayload.confidence_score = confidence_score
+  const updatePayload: InvoiceUpdate = {
+    status,
+    ...(typeof confidence_score === 'number' ? { confidence_score } : {}),
   }
 
   const { error } = await supabase
