@@ -1,5 +1,6 @@
 'use client'
 
+import { useRouter } from 'next/navigation'
 import { useCallback, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
@@ -13,7 +14,7 @@ const ACCEPTED_MIME_TYPES = [
 const ACCEPTED_EXTENSIONS = '.pdf,.jpg,.jpeg,.png'
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024 // 10 MB
 
-type DropPhase = 'idle' | 'dragging' | 'uploading'
+type DropPhase = 'idle' | 'dragging' | 'uploading' | 'processing' | 'attention_required'
 
 interface InvoiceDropzoneProps {
   onSuccess?: (invoiceId: string, fileUrl: string) => void
@@ -73,6 +74,7 @@ function IconUpload() {
 }
 
 export default function InvoiceDropzone({ onSuccess }: InvoiceDropzoneProps) {
+  const router = useRouter()
   const [phase, setPhase] = useState<DropPhase>('idle')
   const [progress, setProgress] = useState(0)
   const [fileName, setFileName] = useState('')
@@ -166,9 +168,10 @@ export default function InvoiceDropzone({ onSuccess }: InvoiceDropzoneProps) {
       }
 
       setProgress(75)
-      toast.loading('Enviando a procesamiento con IA…', {
+      setPhase('processing')
+      toast.loading('Analizando factura con IA...', {
         id: toastId,
-        description: 'Gemini 2.5 Flash está analizando tu factura.',
+        description: 'Gemini 3.6 Flash está analizando tu factura.',
       })
 
       // Llamar al webhook de n8n
@@ -189,22 +192,32 @@ export default function InvoiceDropzone({ onSuccess }: InvoiceDropzoneProps) {
             // Intentar leer la respuesta de n8n para saber el estado final
             try {
               const result = await webhookRes.json() as { status?: string; confidence_score?: number }
-              if (result.status === 'needs_review') {
-                toast.warning('Revisión requerida', {
+              const isLowConfidence = result.confidence_score !== undefined && result.confidence_score < 0.8
+              
+              if (result.status === 'needs_review' || isLowConfidence) {
+                setPhase('attention_required')
+                toast.error('Imagen no clara', {
                   id: toastId,
-                  description: `La IA detectó baja confianza (${((result.confidence_score ?? 0) * 100).toFixed(0)}%). Ve a Verificación para confirmar los datos.`,
-                  duration: 8000,
+                  description: 'La imagen no es lo suficientemente clara. Por favor envía una imagen de mejor calidad.',
+                  duration: 6000,
                 })
+                setTimeout(() => {
+                  setPhase('idle')
+                  setProgress(0)
+                  setFileName('')
+                }, 3500)
+                return
               } else if (result.status === 'processed') {
                 toast.success('Factura procesada con éxito', {
                   id: toastId,
-                  description: 'Los datos han sido extraídos y guardados en el inventario.',
                 })
+                onSuccess?.(invoiceRow.id, fileUrl)
               } else {
                 toast.success('Factura en procesamiento', {
                   id: toastId,
                   description: 'La IA está analizando tu factura. Los resultados aparecerán en el historial.',
                 })
+                onSuccess?.(invoiceRow.id, fileUrl)
               }
             } catch {
               toast.success('Factura enviada correctamente', {
@@ -233,7 +246,6 @@ export default function InvoiceDropzone({ onSuccess }: InvoiceDropzoneProps) {
       }
 
       setProgress(100)
-      onSuccess?.(invoiceRow.id, fileUrl)
 
       // Resetear el dropzone después de un momento
       setTimeout(() => {
@@ -278,7 +290,7 @@ export default function InvoiceDropzone({ onSuccess }: InvoiceDropzoneProps) {
     e.target.value = ''
   }
 
-  const isUploading = phase === 'uploading'
+  const isUploading = phase === 'uploading' || phase === 'processing' || phase === 'attention_required'
 
   return (
     <div className="w-full max-w-xl mx-auto">
@@ -320,7 +332,9 @@ export default function InvoiceDropzone({ onSuccess }: InvoiceDropzoneProps) {
             ? 'border-zinc-300 bg-zinc-50 hover:border-violet-400 hover:bg-violet-50/40 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:border-violet-500 dark:hover:bg-violet-950/20'
             : phase === 'dragging'
               ? 'border-violet-500 bg-violet-50 scale-[1.01] shadow-lg shadow-violet-200/60 dark:bg-violet-950/30 dark:shadow-violet-900/40'
-              : 'border-cyan-400 bg-cyan-50/40 dark:bg-cyan-950/20',
+              : phase === 'attention_required'
+                ? 'border-amber-400 bg-amber-50/40 dark:bg-amber-950/20'
+                : 'border-cyan-400 bg-cyan-50/40 dark:bg-cyan-950/20',
         ].join(' ')}
       >
         {phase === 'idle' && (
@@ -376,10 +390,48 @@ export default function InvoiceDropzone({ onSuccess }: InvoiceDropzoneProps) {
             </div>
             <div>
               <p className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">
-                Procesando…
+                Subiendo...
               </p>
               <p className="mt-0.5 max-w-[240px] truncate text-xs text-zinc-500 dark:text-zinc-400">
                 {fileName}
+              </p>
+            </div>
+          </>
+        )}
+
+        {phase === 'processing' && (
+          <>
+            <div className="relative flex items-center justify-center">
+              <ProgressRing progress={100} />
+              <div className="absolute inset-0 flex items-center justify-center">
+                 <svg className="h-6 w-6 animate-spin text-violet-700 dark:text-violet-300" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                 </svg>
+              </div>
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">
+                Analizando factura con IA...
+              </p>
+              <p className="mt-0.5 max-w-[240px] truncate text-xs text-zinc-500 dark:text-zinc-400">
+                {fileName}
+              </p>
+            </div>
+          </>
+        )}
+
+        {phase === 'attention_required' && (
+          <>
+            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-amber-500 text-white shadow-lg shadow-amber-400/50 animate-bounce">
+              <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+            </div>
+            <div>
+              <p className="text-base font-bold text-amber-700 dark:text-amber-400">
+                Imagen poco clara
+              </p>
+              <p className="mt-0.5 text-xs text-amber-600 dark:text-amber-500">
+                Por favor vuelve a intentarlo subiendo una imagen de mejor calidad.
               </p>
             </div>
           </>

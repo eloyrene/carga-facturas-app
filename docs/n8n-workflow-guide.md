@@ -1,7 +1,7 @@
 # Guía de Configuración del Flujo n8n
 
 > **Versión**: 2.0  
-> **Integración**: n8n + Gemini 2.5 Flash + Supabase  
+> **Integración**: n8n + Gemini 3.6 Flash + Supabase  
 > **Proyecto**: Sistema de Gestión de Inventario y Facturas
 
 ---
@@ -92,10 +92,10 @@ return [{
 
 ---
 
-## Nodo 4: HTTP Request → Gemini 2.5 Flash
+## Nodo 4: HTTP Request → Gemini 3.6 Flash
 
 - **Method**: POST  
-- **URL**: `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=YOUR_GEMINI_API_KEY`  
+- **URL**: `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=YOUR_GEMINI_API_KEY`  
 - **Content-Type**: `application/json`
 
 **Body (JSON):**

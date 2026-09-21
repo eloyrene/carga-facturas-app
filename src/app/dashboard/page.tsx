@@ -53,25 +53,27 @@ function StatusBadge({ status }: { status: string }) {
 export default async function DashboardPage() {
   const supabase = await createClient()
 
-  // ── Métricas en paralelo ─────────────────────────────────────────
+  // ── Métricas de Facturas ─────────────────────────────────────────
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   const todayIso = today.toISOString()
 
   const [
-    { data: products },
     { data: invoicesToday },
     { data: allInvoices },
+    { data: processedInvoices },
+    { data: pendingInvoices },
   ] = await Promise.all([
-    supabase.from('products').select('id, name, barcode, stock, unit_price, updated_at').order('updated_at', { ascending: false }),
     supabase.from('invoices').select('id').eq('status', 'processed').gte('created_at', todayIso),
-    supabase.from('invoices').select('id, vendor_name, invoice_number, total_amount, status, created_at').order('created_at', { ascending: false }).limit(5),
+    supabase.from('invoices').select('id, vendor_name, invoice_number, invoice_date, total_amount, status, created_at').order('created_at', { ascending: false }).limit(10),
+    supabase.from('invoices').select('total_amount').eq('status', 'processed'),
+    supabase.from('invoices').select('id').in('status', ['pending', 'needs_review']),
   ])
 
-  const totalProducts = products?.length ?? 0
-  const totalStock = products?.reduce((acc, p) => acc + (p.stock ?? 0), 0) ?? 0
-  const inventoryValue = products?.reduce((acc, p) => acc + (p.stock ?? 0) * (p.unit_price ?? 0), 0) ?? 0
   const processedToday = invoicesToday?.length ?? 0
+  const totalInvoicesCount = (allInvoices?.length ?? 0)
+  const totalAmountSum = processedInvoices?.reduce((acc, inv) => acc + (Number(inv.total_amount) || 0), 0) ?? 0
+  const pendingCount = pendingInvoices?.length ?? 0
 
   const formatCurrency = (n: number) =>
     new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(n)
@@ -84,9 +86,9 @@ export default async function DashboardPage() {
       <div className="p-6 lg:p-8 space-y-8">
         {/* Page header */}
         <div>
-          <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">Dashboard de Inventario</h1>
+          <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">Dashboard de Facturas</h1>
           <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-            Vista general del estado del inventario y actividad reciente.
+            Resumen de actividad, facturas procesadas en el día e historial reciente.
           </p>
         </div>
 
@@ -94,115 +96,70 @@ export default async function DashboardPage() {
         <section>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <KpiCard
-              label="Total de Productos"
-              value={totalProducts.toLocaleString('es-MX')}
-              icon="📦"
-              accent="border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900"
-            />
-            <KpiCard
-              label="Stock Total"
-              value={totalStock.toLocaleString('es-MX')}
-              sub="unidades en inventario"
-              icon="🏭"
-              accent="border-violet-200 bg-violet-50/50 dark:border-violet-900/50 dark:bg-violet-950/20"
-            />
-            <KpiCard
-              label="Valor del Inventario"
-              value={formatCurrency(inventoryValue)}
-              icon="💰"
+              label="Procesadas Hoy"
+              value={processedToday}
+              sub="facturas con éxito hoy"
+              icon="✅"
               accent="border-emerald-200 bg-emerald-50/50 dark:border-emerald-900/50 dark:bg-emerald-950/20"
             />
             <KpiCard
-              label="Facturas Procesadas Hoy"
-              value={processedToday}
-              icon="✅"
-              accent="border-cyan-200 bg-cyan-50/50 dark:border-cyan-900/50 dark:bg-cyan-950/20"
+              label="Total de Facturas"
+              value={totalInvoicesCount.toLocaleString('es-MX')}
+              sub="facturas registradas"
+              icon="📑"
+              accent="border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900"
+            />
+            <KpiCard
+              label="Monto Total Procesado"
+              value={formatCurrency(totalAmountSum)}
+              sub="acumulado en facturas"
+              icon="💰"
+              accent="border-violet-200 bg-violet-50/50 dark:border-violet-900/50 dark:bg-violet-950/20"
+            />
+            <KpiCard
+              label="Facturas Pendientes"
+              value={pendingCount}
+              sub="en cola o revisión"
+              icon="⏳"
+              accent="border-amber-200 bg-amber-50/50 dark:border-amber-900/50 dark:bg-amber-950/20"
             />
           </div>
         </section>
 
-        {/* Products Table */}
+        {/* Recent Invoices Table */}
         <section>
-          <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden">
+          <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden shadow-sm">
             <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-200 dark:border-zinc-800">
-              <h2 className="text-base font-semibold text-zinc-900 dark:text-white">
-                Maestro de Productos
-              </h2>
-              <span className="text-xs text-zinc-500 dark:text-zinc-400">
-                {totalProducts} producto{totalProducts !== 1 ? 's' : ''}
-              </span>
+              <div>
+                <h2 className="text-base font-semibold text-zinc-900 dark:text-white">
+                  Historial Reciente de Facturas
+                </h2>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                  Últimas facturas procesadas y registradas en el sistema.
+                </p>
+              </div>
+              <a
+                href="/historial"
+                className="text-xs font-medium text-violet-600 dark:text-violet-400 hover:underline"
+              >
+                Ver historial completo →
+              </a>
             </div>
-            {(!products || products.length === 0) ? (
-              <div className="flex flex-col items-center justify-center py-16 text-center">
-                <span className="text-4xl mb-3">📭</span>
-                <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">Sin productos en el inventario</p>
+
+            {(!allInvoices || allInvoices.length === 0) ? (
+              <div className="py-16 text-center">
+                <span className="text-4xl mb-3">📄</span>
+                <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">No hay facturas registradas</p>
                 <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1">
-                  Los productos aparecerán aquí después de confirmar ítems en el módulo de Verificación.
+                  Arrastra tus facturas en el módulo de Subir Factura para comenzar a procesarlas.
                 </p>
               </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-zinc-100 dark:border-zinc-800">
-                      {['Nombre', 'Código de barras', 'Stock', 'Precio unitario', 'Última actualización'].map((h) => (
-                        <th key={h} className="px-6 py-3 text-left text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider whitespace-nowrap">
-                          {h}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                    {products.map((p) => (
-                      <tr key={p.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors">
-                        <td className="px-6 py-4 font-medium text-zinc-900 dark:text-zinc-100 max-w-xs truncate">
-                          {p.name}
-                        </td>
-                        <td className="px-6 py-4 text-zinc-500 dark:text-zinc-400 font-mono text-xs">
-                          {p.barcode ?? <span className="text-zinc-300 dark:text-zinc-600">—</span>}
-                        </td>
-                        <td className="px-6 py-4 text-zinc-700 dark:text-zinc-300 font-semibold">
-                          {Number(p.stock).toLocaleString('es-MX')}
-                        </td>
-                        <td className="px-6 py-4 text-zinc-700 dark:text-zinc-300">
-                          {formatCurrency(p.unit_price)}
-                        </td>
-                        <td className="px-6 py-4 text-zinc-400 dark:text-zinc-500 text-xs whitespace-nowrap">
-                          {formatDate(p.updated_at)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </section>
-
-        {/* Recent Invoices */}
-        <section>
-          <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-200 dark:border-zinc-800">
-              <h2 className="text-base font-semibold text-zinc-900 dark:text-white">
-                Facturas Recientes
-              </h2>
-              <a
-                href="/historial"
-                className="text-xs font-medium text-violet-600 dark:text-violet-400 hover:underline"
-              >
-                Ver todo →
-              </a>
-            </div>
-            {(!allInvoices || allInvoices.length === 0) ? (
-              <div className="py-12 text-center">
-                <p className="text-sm text-zinc-400">No hay facturas registradas.</p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-zinc-100 dark:border-zinc-800">
-                      {['Proveedor', 'Nº Factura', 'Total', 'Estado', 'Fecha'].map((h) => (
+                    <tr className="border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30">
+                      {['Proveedor', 'Nº Factura', 'Fecha Emisión', 'Total', 'Estado', 'Fecha Registro'].map((h) => (
                         <th key={h} className="px-6 py-3 text-left text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider whitespace-nowrap">
                           {h}
                         </th>
@@ -218,8 +175,11 @@ export default async function DashboardPage() {
                         <td className="px-6 py-4 text-zinc-500 dark:text-zinc-400 font-mono text-xs">
                           {inv.invoice_number ?? '—'}
                         </td>
-                        <td className="px-6 py-4 text-zinc-700 dark:text-zinc-300">
-                          {inv.total_amount != null ? formatCurrency(inv.total_amount) : '—'}
+                        <td className="px-6 py-4 text-zinc-600 dark:text-zinc-400 text-xs">
+                          {inv.invoice_date ?? '—'}
+                        </td>
+                        <td className="px-6 py-4 text-zinc-900 dark:text-zinc-100 font-semibold">
+                          {inv.total_amount != null ? formatCurrency(Number(inv.total_amount)) : '—'}
                         </td>
                         <td className="px-6 py-4">
                           <StatusBadge status={inv.status} />

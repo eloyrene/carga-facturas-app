@@ -18,20 +18,31 @@ export type InvoiceStatus = 'pending' | 'processed' | 'needs_review' | 'failed'
 // ---------------------------------------------------------------
 // profiles
 // ---------------------------------------------------------------
-export interface Profile {
+export type Profile = {
   id: string
   email: string
   role: UserRole
   created_at: string
 }
 
-export type ProfileInsert = Omit<Profile, 'created_at'>
-export type ProfileUpdate = Partial<Omit<Profile, 'id' | 'created_at'>>
+export type ProfileInsert = {
+  id?: string
+  email: string
+  role?: UserRole
+  created_at?: string
+}
+
+export type ProfileUpdate = {
+  id?: string
+  email?: string
+  role?: UserRole
+  created_at?: string
+}
 
 // ---------------------------------------------------------------
 // invoices
 // ---------------------------------------------------------------
-export interface Invoice {
+export type Invoice = {
   id: string
   user_id: string
   invoice_number: string | null
@@ -47,21 +58,38 @@ export interface Invoice {
   created_at: string
 }
 
-export type InvoiceInsert = Pick<Invoice, 'user_id' | 'file_url'> &
-  Partial<Omit<Invoice, 'id' | 'user_id' | 'file_url' | 'created_at'>>
+export type InvoiceInsert = {
+  id?: string
+  user_id: string
+  file_url: string
+  invoice_number?: string | null
+  vendor_name?: string | null
+  invoice_date?: string | null
+  total_amount?: number | null
+  confidence_score?: number | null
+  status?: InvoiceStatus
+  raw_json?: Record<string, unknown> | null
+  created_at?: string
+}
 
-export type InvoiceUpdate = Partial<
-  Omit<Invoice, 'id' | 'user_id' | 'created_at'>
->
+export type InvoiceUpdate = {
+  id?: string
+  user_id?: string
+  file_url?: string
+  invoice_number?: string | null
+  vendor_name?: string | null
+  invoice_date?: string | null
+  total_amount?: number | null
+  confidence_score?: number | null
+  status?: InvoiceStatus
+  raw_json?: Record<string, unknown> | null
+  created_at?: string
+}
 
 // ---------------------------------------------------------------
 // invoice_items
-//   Ítems extraídos directamente por la IA de cada factura.
-//   (Renombrado de "inventory_items" en el esquema v1)
-//   Los campos confirmed_name e is_confirmed son usados
-//   por el Módulo de Verificación Humana.
 // ---------------------------------------------------------------
-export interface InvoiceItem {
+export type InvoiceItem = {
   id: string
   invoice_id: string
   /** Nombre tal como lo leyó la IA */
@@ -78,17 +106,34 @@ export interface InvoiceItem {
   is_confirmed: boolean
 }
 
-export type InvoiceItemInsert = Omit<InvoiceItem, 'id' | 'total_price'>
-export type InvoiceItemUpdate = Partial<
-  Omit<InvoiceItem, 'id' | 'invoice_id' | 'total_price'>
->
+export type InvoiceItemInsert = {
+  id?: string
+  invoice_id: string
+  extracted_name: string
+  barcode?: string | null
+  quantity?: number
+  unit_price?: number
+  total_price?: number
+  confirmed_name?: string | null
+  is_confirmed?: boolean
+}
+
+export type InvoiceItemUpdate = {
+  id?: string
+  invoice_id?: string
+  extracted_name?: string
+  barcode?: string | null
+  quantity?: number
+  unit_price?: number
+  total_price?: number
+  confirmed_name?: string | null
+  is_confirmed?: boolean
+}
 
 // ---------------------------------------------------------------
 // products
-//   Maestro de catálogo / inventario confirmado.
-//   Se pobla a partir de los invoice_items verificados.
 // ---------------------------------------------------------------
-export interface Product {
+export type Product = {
   id: string
   user_id: string
   name: string
@@ -99,51 +144,62 @@ export interface Product {
   created_at: string
 }
 
-export type ProductInsert = Omit<Product, 'id' | 'updated_at' | 'created_at'>
-export type ProductUpdate = Partial<Omit<Product, 'id' | 'user_id' | 'created_at'>>
+export type ProductInsert = {
+  id?: string
+  user_id: string
+  name: string
+  barcode?: string | null
+  stock?: number
+  unit_price?: number
+  updated_at?: string
+  created_at?: string
+}
+
+export type ProductUpdate = {
+  id?: string
+  user_id?: string
+  name?: string
+  barcode?: string | null
+  stock?: number
+  unit_price?: number
+  updated_at?: string
+  created_at?: string
+}
 
 // ---------------------------------------------------------------
 // Database – tipo genérico para el cliente Supabase
 // ---------------------------------------------------------------
-export interface Database {
+export type Database = {
   public: {
     Tables: {
       profiles: {
         Row: Profile
         Insert: ProfileInsert
         Update: ProfileUpdate
-        Relationships: any[]
+        Relationships: []
       }
       invoices: {
         Row: Invoice
         Insert: InvoiceInsert
         Update: InvoiceUpdate
-        Relationships: any[]
+        Relationships: []
       }
       invoice_items: {
         Row: InvoiceItem
         Insert: InvoiceItemInsert
         Update: InvoiceItemUpdate
-        Relationships: any[]
+        Relationships: []
       }
       products: {
         Row: Product
         Insert: ProductInsert
         Update: ProductUpdate
-        Relationships: any[]
+        Relationships: []
       }
     }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      [_ in never]: never
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
+    Views: Record<string, any>
+    Functions: Record<string, any>
+    Enums: Record<string, any>
+    CompositeTypes: Record<string, any>
   }
 }

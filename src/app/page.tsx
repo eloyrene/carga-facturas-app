@@ -15,7 +15,7 @@ export default function HomePage() {
         {/* Header */}
         <div className="mb-12 text-center">
           <span className="mb-4 inline-flex items-center gap-2 rounded-full border border-violet-500/30 bg-violet-500/10 px-3 py-1 text-xs font-medium text-violet-600 dark:text-violet-400">
-            ✦ Procesamiento con Gemini 2.5 Flash
+            ✦ Procesamiento con Gemini 3.6 Flash
           </span>
           <h1 className="mt-3 bg-gradient-to-r from-zinc-900 via-zinc-700 to-zinc-500 dark:from-white dark:via-zinc-200 dark:to-zinc-400 bg-clip-text text-4xl font-bold tracking-tight text-transparent sm:text-5xl">
             Cargar Factura
