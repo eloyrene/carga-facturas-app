@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import type { InvoiceForReview } from '@/app/verificacion/page'
 import type { InvoiceItem } from '@/lib/supabase/types'
 import { createClient } from '@/lib/supabase/client'
@@ -14,6 +14,41 @@ interface InvoiceReviewFormProps {
 export default function InvoiceReviewForm({ invoice, onSaveSuccess, onCancel }: InvoiceReviewFormProps) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // URL firmada para bucket privado
+  const [signedUrl, setSignedUrl] = useState<string | null>(null)
+  const [signedUrlLoading, setSignedUrlLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    async function fetchSignedUrl() {
+      setSignedUrlLoading(true)
+      try {
+        if (!invoice.file_url) { setSignedUrl(null); return }
+        const supabase = createClient()
+        let storagePath: string
+        const match = invoice.file_url.match(/\/storage\/v1\/object\/(public|sign)\/invoices\/(.+?)(?:\?|$)/)
+        if (match) {
+          storagePath = match[2]
+        } else if (!invoice.file_url.startsWith('http')) {
+          storagePath = invoice.file_url
+        } else {
+          setSignedUrl(invoice.file_url)
+          return
+        }
+        const { data, error } = await supabase.storage.from('invoices').createSignedUrl(storagePath, 3600)
+        if (!cancelled) {
+          setSignedUrl(error || !data?.signedUrl ? invoice.file_url : data.signedUrl)
+        }
+      } catch {
+        if (!cancelled) setSignedUrl(invoice.file_url)
+      } finally {
+        if (!cancelled) setSignedUrlLoading(false)
+      }
+    }
+    void fetchSignedUrl()
+    return () => { cancelled = true }
+  }, [invoice.file_url])
 
   // Controles del visor
   const [zoom, setZoom] = useState(1)
@@ -113,7 +148,7 @@ export default function InvoiceReviewForm({ invoice, onSaveSuccess, onCancel }: 
   }
 
   const inputCls = "w-full rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500/50 transition"
-  const isPdf = invoice.file_url.toLowerCase().endsWith('.pdf')
+  const isPdf = invoice.file_url?.toLowerCase().endsWith('.pdf') ?? false
 
   return (
     <article className="rounded-2xl border border-amber-200 dark:border-amber-900/50 bg-white dark:bg-zinc-900 overflow-hidden shadow-sm flex flex-col xl:flex-row min-h-[800px] xl:max-h-[85vh]">
@@ -136,17 +171,24 @@ export default function InvoiceReviewForm({ invoice, onSaveSuccess, onCancel }: 
           </div>
         </div>
         <div className="flex-1 overflow-auto relative p-4 flex items-center justify-center">
-          <div
-            className="transition-transform duration-200 origin-center flex items-center justify-center w-full h-full"
-            style={{ transform: `scale(${zoom}) rotate(${rotation}deg)` }}
-          >
-            {isPdf ? (
-              <iframe src={invoice.file_url} title="Documento PDF" className="w-full h-[600px] border-0 shadow-lg bg-white" />
-            ) : (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={invoice.file_url} alt="Factura" className="max-w-full max-h-[800px] shadow-lg bg-white object-contain" />
-            )}
-          </div>
+          {signedUrlLoading ? (
+            <div className="flex flex-col items-center gap-3">
+              <div className="h-8 w-8 animate-spin rounded-full border-2 border-zinc-300 border-t-violet-500" />
+              <p className="text-xs text-zinc-400">Cargando documento…</p>
+            </div>
+          ) : (
+            <div
+              className="transition-transform duration-200 origin-center flex items-center justify-center w-full h-full"
+              style={{ transform: `scale(${zoom}) rotate(${rotation}deg)` }}
+            >
+              {isPdf ? (
+                <iframe src={signedUrl ?? ''} title="Documento PDF" className="w-full h-[600px] border-0 shadow-lg bg-white" />
+              ) : (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={signedUrl ?? ''} alt="Factura" className="max-w-full max-h-[800px] shadow-lg bg-white object-contain" />
+              )}
+            </div>
+          )}
         </div>
       </div>
 

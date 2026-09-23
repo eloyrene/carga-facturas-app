@@ -1,8 +1,18 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import type { InvoiceWithItems } from '@/app/historial/page'
 import type { InvoiceItem } from '@/lib/supabase/types'
+import { createClient } from '@/lib/supabase/client'
+
+// Extrae la fecha local (YYYY-MM-DD) de una ISO timestamp
+function isoToLocalDate(iso: string): string {
+  const d = new Date(iso)
+  const year = d.getFullYear()
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
 
 // ── Helpers ────────────────────────────────────────────────────────
 function formatCurrency(n: number | null) {
@@ -107,7 +117,59 @@ function InvoiceSheet({
   invoice: InvoiceWithItems
   onClose: () => void
 }) {
-  const isPdf = invoice.file_url.toLowerCase().endsWith('.pdf')
+  const isPdf = invoice.file_url?.toLowerCase().endsWith('.pdf') ?? false
+  const [imgError, setImgError] = useState(false)
+  const [imgLoaded, setImgLoaded] = useState(false)
+  // URL firmada para buckets privados de Supabase
+  const [signedUrl, setSignedUrl] = useState<string | null>(null)
+  const [signedUrlLoading, setSignedUrlLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    async function fetchSignedUrl() {
+      setSignedUrlLoading(true)
+      setImgError(false)
+      setImgLoaded(false)
+      try {
+        if (!invoice.file_url) {
+          setSignedUrl(null)
+          return
+        }
+        // Extraer el path relativo desde la URL pública almacenada
+        // Formato típico: https://<project>.supabase.co/storage/v1/object/public/invoices/<user_id>/<file>
+        // o bien puede ser ya una URL firmada o el storagePath directo
+        const supabase = createClient()
+        let storagePath: string
+        const match = invoice.file_url.match(/\/storage\/v1\/object\/(public|sign)\/invoices\/(.+?)(?:\?|$)/)
+        if (match) {
+          storagePath = match[2]
+        } else if (!invoice.file_url.startsWith('http')) {
+          storagePath = invoice.file_url
+        } else {
+          // Fallback: intentar mostrar directamente la URL guardada
+          setSignedUrl(invoice.file_url)
+          return
+        }
+        const { data, error } = await supabase.storage
+          .from('invoices')
+          .createSignedUrl(storagePath, 3600) // válida por 1 hora
+        if (!cancelled) {
+          if (error || !data?.signedUrl) {
+            // Fallback a la URL original si falla la firma
+            setSignedUrl(invoice.file_url)
+          } else {
+            setSignedUrl(data.signedUrl)
+          }
+        }
+      } catch {
+        if (!cancelled) setSignedUrl(invoice.file_url)
+      } finally {
+        if (!cancelled) setSignedUrlLoading(false)
+      }
+    }
+    void fetchSignedUrl()
+    return () => { cancelled = true }
+  }, [invoice.file_url])
 
   return (
     <>
@@ -149,20 +211,60 @@ function InvoiceSheet({
 
         <div className="flex flex-1 overflow-hidden flex-col lg:flex-row">
           {/* File Preview */}
-          <div className="flex-1 bg-zinc-100 dark:bg-zinc-950 overflow-auto">
-            {isPdf ? (
+          <div className="flex-1 bg-zinc-100 dark:bg-zinc-950 overflow-auto flex items-center justify-center relative">
+            {signedUrlLoading ? (
+              <div className="flex flex-col items-center gap-3">
+                <div className="h-8 w-8 animate-spin rounded-full border-2 border-zinc-300 border-t-violet-500" />
+                <p className="text-xs text-zinc-400">Cargando vista previa…</p>
+              </div>
+            ) : !signedUrl ? (
+              <div className="text-center px-6">
+                <span className="text-4xl mb-3 block">📎</span>
+                <p className="text-sm text-zinc-500 dark:text-zinc-400">No hay archivo adjunto</p>
+              </div>
+            ) : isPdf ? (
               <iframe
-                src={invoice.file_url}
+                src={signedUrl}
                 title="Factura PDF"
                 className="h-full w-full min-h-[300px]"
+                onError={() => setImgError(true)}
               />
+            ) : imgError ? (
+              <div className="text-center px-6 py-8">
+                <span className="text-4xl mb-3 block">🖼️</span>
+                <p className="text-sm font-medium text-zinc-600 dark:text-zinc-400 mb-3">
+                  No se pudo cargar la vista previa
+                </p>
+                <a
+                  href={signedUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 rounded-lg bg-violet-600 hover:bg-violet-700 px-4 py-2 text-sm font-medium text-white transition-colors"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                    <polyline points="15 3 21 3 21 9" />
+                    <line x1="10" y1="14" x2="21" y2="3" />
+                  </svg>
+                  Abrir en nueva pestaña
+                </a>
+              </div>
             ) : (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={invoice.file_url}
-                alt="Imagen de factura"
-                className="max-h-full max-w-full object-contain m-auto block p-4"
-              />
+              <>
+                {!imgLoaded && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-zinc-100 dark:bg-zinc-950">
+                    <div className="h-8 w-8 animate-spin rounded-full border-2 border-zinc-300 border-t-violet-500" />
+                  </div>
+                )}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={signedUrl}
+                  alt="Imagen de factura"
+                  className={`max-h-full max-w-full object-contain m-auto block p-4 transition-opacity duration-300 ${imgLoaded ? 'opacity-100' : 'opacity-0'}`}
+                  onLoad={() => setImgLoaded(true)}
+                  onError={() => setImgError(true)}
+                />
+              </>
             )}
           </div>
 
@@ -249,11 +351,10 @@ export default function InvoiceHistoryClient({ invoices }: Props) {
     return invoices.filter((inv) => {
       if (vendorFilter && !inv.vendor_name?.toLowerCase().includes(vendorFilter.toLowerCase())) return false
       if (statusFilter && inv.status !== statusFilter) return false
-      if (dateFrom && inv.created_at < dateFrom) return false
-      if (dateTo) {
-        const endOfDay = dateTo + 'T23:59:59'
-        if (inv.created_at > endOfDay) return false
-      }
+      // Convertir la timestamp a fecha local antes de comparar
+      const invLocalDate = isoToLocalDate(inv.created_at)
+      if (dateFrom && invLocalDate < dateFrom) return false
+      if (dateTo && invLocalDate > dateTo) return false
       return true
     })
   }, [invoices, vendorFilter, dateFrom, dateTo, statusFilter])

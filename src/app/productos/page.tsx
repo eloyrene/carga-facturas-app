@@ -18,9 +18,14 @@ export default async function ProductosPage() {
   const supabase = await createClient()
 
   // Traer los ítems extraídos de las facturas
-  const { data: rawItems } = await supabase
+  const { data: rawItems, error: itemsError } = await supabase
     .from('invoice_items')
-    .select('id, extracted_name, confirmed_name, barcode, quantity, unit_price, total_price, invoice_id')
+    .select('id, extracted_name, confirmed_name, barcode, quantity, unit_price, total_price, invoice_id, is_confirmed')
+    .order('invoice_id', { ascending: false })
+
+  if (itemsError) {
+    console.error('[ProductosPage] Error al cargar items:', itemsError.message)
+  }
 
   const items = rawItems || []
 
@@ -96,8 +101,11 @@ export default async function ProductosPage() {
                 <span className="text-4xl mb-3">📦</span>
                 <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">No hay productos registrados</p>
                 <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1">
-                  Sube tus facturas para extraer automáticamente los productos, sus cantidades y precios.
+                  Sube tus facturas y procésalas con la IA para ver aquí los productos extraídos.
                 </p>
+                {itemsError && (
+                  <p className="text-xs text-rose-500 mt-2 font-mono">{itemsError.message}</p>
+                )}
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -119,6 +127,9 @@ export default async function ProductosPage() {
                       <th className="px-6 py-3 text-right text-xs font-semibold text-zinc-500 uppercase tracking-wider">
                         Precio Total
                       </th>
+                      <th className="px-6 py-3 text-center text-xs font-semibold text-zinc-500 uppercase tracking-wider">
+                        Estado
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
@@ -127,8 +138,11 @@ export default async function ProductosPage() {
                       const total = item.total_price || item.quantity * item.unit_price
                       return (
                         <tr key={item.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors">
-                          <td className="px-6 py-4 font-medium text-zinc-900 dark:text-zinc-100 max-w-xs truncate">
-                            {name}
+                          <td className="px-6 py-4 font-medium text-zinc-900 dark:text-zinc-100 max-w-xs">
+                            <p className="truncate">{name}</p>
+                            {item.confirmed_name && item.confirmed_name !== item.extracted_name && (
+                              <p className="text-[10px] text-zinc-400 truncate">Original: {item.extracted_name}</p>
+                            )}
                           </td>
                           <td className="px-6 py-4 text-zinc-500 dark:text-zinc-400 font-mono text-xs">
                             {item.barcode ?? <span className="text-zinc-300 dark:text-zinc-600">—</span>}
@@ -141,6 +155,18 @@ export default async function ProductosPage() {
                           </td>
                           <td className="px-6 py-4 text-right font-semibold text-emerald-600 dark:text-emerald-400">
                             {formatCurrency(Number(total))}
+                          </td>
+                          <td className="px-6 py-4 text-center">
+                            {item.is_confirmed ? (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 dark:bg-emerald-950/60 px-2.5 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">
+                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+                                Confirmado
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center rounded-full bg-amber-100 dark:bg-amber-950/60 px-2.5 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-400">
+                                Pendiente
+                              </span>
+                            )}
                           </td>
                         </tr>
                       )
